@@ -17,17 +17,18 @@ def quickSimplify(workspace):
 
     Returns:
         qSolution/log {string} -- quick solution or error log
+        enableInteraction {bool} -- if False disables 'visma'(interaction) button
     """
     # FIXME: Crashes for some cases. Find and fix.
     qSolution = ""
-    input = workspace.textedit.toPlainText()
-    cleanInput = removeSpaces(input)
+    strIn = workspace.textedit.toPlainText()
+    cleanInput = removeSpaces(strIn)
     terms = getTerms(cleanInput)
     normalizedTerms = normalize(terms)
     symTokens = tokenizeSymbols(normalizedTerms)
     normalizedTerms, symTokens = removeUnary(normalizedTerms, symTokens)
-    if checkEquation(normalizedTerms, symTokens) is True and input != "":
-        if symTokens[-1] is not False:
+    if checkEquation(normalizedTerms, symTokens) is True and strIn != "":
+        if symTokens and symTokens[-1] is not False:
             tokens = getToken(normalizedTerms, symTokens)
             tokens = tokens.tokens
             lhs, rhs = getLHSandRHS(tokens)
@@ -42,15 +43,18 @@ def quickSimplify(workspace):
             qSolution += tokensToLatex(equationTokens[-1]) + ' $'
             # workspace.eqToks = equationTokens
             # plot(workspace)
-            return qSolution
-        else:
+            return qSolution, True
+        elif symTokens:
             log = "Invalid Expression"
-            return log
+            return log, False
+        else:
+            log = ""
+            return log, False
     else:
         log = ""
-        if input != "":
+        if strIn != "":
             _, log = checkEquation(normalizedTerms, symTokens)
-        return log
+        return log, False
 
 
 #######
@@ -79,13 +83,13 @@ def qSolveFigure(workspace):
     return qSolLayout
 
 
-def showQSolve(workspace, showQuickSim):
+def renderQuickSol(workspace, showQSolver):
     """Renders quick solution in matplotlib figure
 
     Arguments:
         workspace {QtWidgets.QWidget} -- main layout
     """
-    if showQuickSim is True:
+    if showQSolver is True:
         quickSolution = workspace.qSol
     else:
         quickSolution = ""

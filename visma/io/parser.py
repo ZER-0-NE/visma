@@ -33,7 +33,7 @@ def resultLatex(operation, equations, comments, wrtVar=None):
     finalSteps += "\n"
     finalSteps += "OUTPUT: " + r"$" + equationLatex[-1] + r"$" + "\n"*2
 
-    for i in range(len(equationLatex)):
+    for i, _ in enumerate(equationLatex):
         if comments[i] != []:
             finalSteps += str(comments[i][0]) + "\n"
         finalSteps += r"$" + equationLatex[i] + r"$" + "\n"*2
@@ -54,6 +54,29 @@ def tokensToLatex(eqTokens):
     for token in eqTokens:
         eqLatex += token.__str__()
     return eqLatex
+
+
+def latexToTerms(terms):
+
+    for index, term in enumerate(terms):
+        if term == 'frac':
+            terms.remove(terms[index])
+            if index < len(terms):
+                terms.remove(terms[index])
+                j = index
+                while j < len(terms) and terms[j] is not '}':
+                    j += 1
+                if j < len(terms):
+                    terms.remove(terms[j])
+                    terms.insert(j, '/')
+                if j+1 < len(terms):
+                    terms.remove(terms[j+1])
+                while j < len(terms) and terms[j] is not '}':
+                    j += 1
+                if j < len(terms):
+                    terms.remove(terms[j])
+
+    return terms
 
 
 def tokensToString(tokens):
@@ -117,7 +140,6 @@ def tokensToString(tokens):
                 tokenString += tokensToString([token.operand])
             elif isinstance(token.operand, Expression):
                 tokenString += tokensToString(token.operand.tokens)
-
             tokenString += ')'
         elif isinstance(token, Logarithm):
             if token.coefficient == 1:

@@ -24,8 +24,9 @@ from visma.functions.trigonometry import Sine, Cosine, Tangent, Cotangent, Cosec
 from visma.functions.operator import Binary, Sqrt
 from visma.matrix.structure import Matrix
 from visma.matrix.checks import isMatrix
+from visma.io.parser import latexToTerms
 
-symbols = ['+', '-', '*', '/', '(', ')', '{', '}', '[', ']', '^', '=', '<', '>', '<=', '>=', ',', ';']
+symbols = ['+', '-', '*', '/', '(', ')', '{', '}', '[', ']', '^', '=', '<', '>', '<=', '>=', ',', ';', '$']
 greek = [u'\u03B1', u'\u03B2', u'\u03B3']
 constants = [u'\u03C0', 'e', 'i']
 
@@ -127,6 +128,7 @@ def getTerms(eqn):
                 terms.append(eqn[x])
 
             elif eqn[x] == 'l':
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("og_"):
@@ -137,6 +139,7 @@ def getTerms(eqn):
                     terms.append(buf)
                     x = i + 1
                     continue
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("og"):
@@ -147,6 +150,7 @@ def getTerms(eqn):
                     terms.append(buf)
                     x = i + 1
                     continue
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("n"):
@@ -160,6 +164,7 @@ def getTerms(eqn):
                 terms.append(eqn[x])
 
             elif eqn[x] == 'p':
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("i"):
@@ -173,6 +178,7 @@ def getTerms(eqn):
                 terms.append(eqn[x])
 
             elif eqn[x] == 'f':
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("rac"):
@@ -192,6 +198,7 @@ def getTerms(eqn):
                 terms.append('iota')
 
             elif eqn[x] == 't':
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("anh"):
@@ -202,6 +209,7 @@ def getTerms(eqn):
                     terms.append(buf)
                     x = i + 1
                     continue
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("an"):
@@ -215,6 +223,7 @@ def getTerms(eqn):
                 terms.append(eqn[x])
 
             elif eqn[x] == 'c':
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("sch"):
@@ -225,6 +234,7 @@ def getTerms(eqn):
                     terms.append(buf)
                     x = i + 1
                     continue
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("sc"):
@@ -246,6 +256,7 @@ def getTerms(eqn):
                     terms.append(buf)
                     x = i + 1
                     continue
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("os"):
@@ -267,6 +278,7 @@ def getTerms(eqn):
                     terms.append(buf)
                     x = i + 1
                     continue
+
                 i = x
                 buf = eqn[x]
                 while (i - x) < len("ot"):
@@ -344,22 +356,13 @@ def normalize(terms):
     Returns:
         terms {list} -- Greek input terms
     """
-    for index, term in enumerate(terms):
+    for term in terms:
         for i, x in enumerate(inputLaTeX):
             if x == term:
                 term = inputGreek[i]
-        if term == 'frac':
-            terms.remove(terms[index])
-            terms.remove(terms[index])
-            j = index
-            while terms[j] is not '}':
-                j += 1
-            terms.remove(terms[j])
-            terms.insert(j, '/')
-            terms.remove(terms[j+1])
-            while terms[j] is not '}':
-                j += 1
-            terms.remove(terms[j])
+
+    terms = latexToTerms(terms)
+
     return terms
 
 
@@ -402,7 +405,6 @@ def tokenizeSymbols(terms):
                 symTokens[-1] = 'Binary'
         elif term in funcs:
             symTokens[-1] = funcSyms[funcs.index(term)]
-
     return symTokens
 
 
@@ -905,6 +907,11 @@ def getToken(terms, symTokens, scope=None, coeff=1):
     x = 0
     level = 0
     while x < len(terms):
+        if terms[x] == '$':
+            symTokens.pop(x)
+            terms.pop(x)
+            symTokens.pop()
+            terms.pop()
         if isVariable(terms[x]) and symTokens[x] not in funcSyms:
             varTerms = []
             varSymTokens = []

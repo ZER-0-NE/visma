@@ -1,6 +1,6 @@
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from PyQt5.QtWidgets import QVBoxLayout, qApp, QLabel, QDoubleSpinBox
+from PyQt5.QtWidgets import QVBoxLayout, qApp, QLabel, QDoubleSpinBox, QScrollArea
 
 #######
 # GUI #
@@ -19,9 +19,10 @@ def stepsFigure(workspace):
     workspace.stepsfigure = Figure()
     workspace.stepscanvas = FigureCanvas(workspace.stepsfigure)
     workspace.stepsfigure.clear()
-
+    workspace.scroll = QScrollArea()
+    workspace.scroll.setWidget(workspace.stepscanvas)
     stepslayout = QVBoxLayout()
-    stepslayout.addWidget(workspace.stepscanvas)
+    stepslayout.addWidget(workspace.scroll)
     return stepslayout
 
 
@@ -34,11 +35,8 @@ def showSteps(workspace):
     workspace.stepsfigure.suptitle(workspace.output, y=0.98,
                                    horizontalalignment='center',
                                    verticalalignment='top', size=qApp.font().pointSize()*workspace.stepsFontSize)
-    try:
-        workspace.stepscanvas.draw()
-    except Exception as e:
-        print("[INFO]: Please give some input. \nError: {}".format(e))
-    # TODO: Disable 'visma' button for invalid and null input
+    workspace.stepscanvas.draw()
+
 
 ###############
 # preferences #

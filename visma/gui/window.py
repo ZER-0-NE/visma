@@ -9,7 +9,7 @@ import sys
 import os
 
 from PyQt5.QtGui import QPainter
-from PyQt5.QtWidgets import QApplication, QWidget, QTabWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QTextEdit, QSplitter, QFrame, QAbstractButton, QDialog
+from PyQt5.QtWidgets import QApplication, QWidget, QTabWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QTextEdit, QSplitter, QFrame, QAbstractButton, QDialog, QMessageBox, QFileDialog
 from PyQt5.QtCore import Qt, QUrl
 from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -20,7 +20,7 @@ from visma.io.checks import checkTypes, getVariables
 from visma.io.tokenize import tokenizer, getLHSandRHS
 from visma.io.parser import resultLatex
 from visma.gui.plotter import plotFigure2D, plotFigure3D, plot
-from visma.gui.qsolver import quickSimplify, qSolveFigure, showQSolve
+from visma.gui.qsolver import quickSimplify, qSolveFigure, renderQuickSol
 from visma.gui.settings import preferenceLayout
 from visma.gui.steps import stepsFigure, showSteps
 from visma.simplify.simplify import simplify, simplifyEquation
@@ -49,13 +49,16 @@ class Window(QtWidgets.QMainWindow):
         wikiAction.setStatusTip('Open Github wiki')
         wikiAction.triggered.connect(self.popupBrowser)
 
+        addEqList = QtWidgets.QAction('Add Equations', self)
+        addEqList.setStatusTip('Add custom equations')
+        addEqList.triggered.connect(self.loadEquations)
+
         self.statusBar()
 
         menubar = self.menuBar()
         fileMenu = menubar.addMenu('&File')
         fileMenu.addAction(exitAction)
-        # TODO: Add function for adding custom equation lists
-        # fileMenu.addAction(addEqList)
+        fileMenu.addAction(addEqList)
         # configMenu = menubar.addMenu('&Config')
 
         helpMenu = menubar.addMenu('&Help')
@@ -71,11 +74,28 @@ class Window(QtWidgets.QMainWindow):
     def popupBrowser(self):
         w = QDialog(self)
         w.resize(600, 500)
+        w.setWindowTitle('Wiki')
         web = QWebEngineView(w)
         web.load(QUrl('https://github.com/aerospaceresearch/visma/wiki'))
         web.resize(600, 500)
         web.show()
         w.show()
+
+    def loadEquations(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getOpenFileName(self, "Add Custom Equations", "", "All Files (*);;Visma Files (*.vis)", options=options)
+        if os.path.isfile(fileName):
+            if os.path.getsize(fileName) == 0:
+                return self.workSpace.warning("Input equations file is empty!")
+            if self.workSpace.equations[0][0] == "No equations stored":
+                self.workSpace.equations.pop(0)
+            with open(fileName) as fileobj:
+                for line in fileobj:
+                    line = line.replace(' ', '').replace('\n', '')
+                    if not any(line in item for item in self.workSpace.equations) and not (line.isspace() or line == ''):
+                        self.workSpace.equations.insert(0, ('Equation No.' + str(len(self.workSpace.equations) + 1), line))
+                self.workSpace.addEquation()
 
 
 class WorkSpace(QWidget):
@@ -84,10 +104,11 @@ class WorkSpace(QWidget):
     inputLaTeX = ['x', 'y', 'z', '(', ')', '7', '8', '9', 'DEL', 'C', 'f', 'g',  'h', '{', '}', '4', '5', '6', '\\div', '\\times', '\\sin', '\\cos', '\\tan', '[', ']', '1', '2', '3', '+', '-', 'log', 'exp', '^', 'i', '\\pi', '.', '0', '=', '<', '>']
 
     mode = 'interaction'
-    showQuickSim = True
+    showQSolver = True
     showStepByStep = True
     showPlotter = False
     enableQSolver = True
+    enableInteraction = False
     buttons = {}
     solutionOptionsBox = QGridLayout()
     solutionButtons = {}
@@ -101,8 +122,8 @@ class WorkSpace(QWidget):
     try:
         with open('local/eqn-list.vis', 'r+') as fp:
             for line in fp:
-                if not line.isspace():
-                    fp.write(line)
+                line = line.replace(' ', '').replace('\n', '')
+                if not (line.isspace() or line == ''):
                     equations.insert(
                         0, ('Equation No.' + str(len(equations) + 1), line))
             fp.close()
@@ -208,16 +229,26 @@ class WorkSpace(QWidget):
         self.setLayout(hbox)
 
     def textChangeTrigger(self):
+        self.enableInteraction = True
+        self.clearButtons()
         if self.textedit.toPlainText() == "":
             self.enableQSolver = True
-        if self.enableQSolver and self.showQuickSim:
-            self.qSol = quickSimplify(self)
-            if self.qSol is None:
+            self.enableInteraction = False
+        try:
+            if self.enableQSolver and self.showQSolver:
+                self.qSol, self.enableInteraction = quickSimplify(self)
+                if self.qSol is None:
+                    self.qSol = ""
+                renderQuickSol(self, self.showQSolver)
+            elif self.showQSolver is False:
                 self.qSol = ""
-            showQSolve(self, self.showQuickSim)
-        elif self.showQuickSim is False:
-            self.qSol = ""
-            showQSolve(self, self.showQuickSim)
+                renderQuickSol(self, self.showQSolver)
+        except ZeroDivisionError:
+            self.enableInteraction = False
+        if self.enableInteraction:
+            self.interactionModeButton.setEnabled(True)
+        else:
+            self.interactionModeButton.setEnabled(False)
 
     def clearAll(self):
         self.textedit.clear()
@@ -242,15 +273,42 @@ class WorkSpace(QWidget):
         self.myQListWidget.itemClicked.connect(self.Clicked)
         self.clearButton = QtWidgets.QPushButton('Clear equations')
         self.clearButton.clicked.connect(self.clearHistory)
-        self.clearButton.setStatusTip("Restart UI for clearing history")
-        # FIXME: Clear button. Clear rightaway.
+        self.clearButton.setStatusTip("Clear history")
         self.equationListVbox.addWidget(self.clearButton)
         return self.equationListVbox
 
     def clearHistory(self):
-        file = open('local/eqn-list.vis', 'w')
+
+        for i in reversed(range(self.equationListVbox.count())):
+            self.equationListVbox.itemAt(i).widget().setParent(None)
+
+        self.equations = [('No equations stored', '')]
+
+        file = open('local/eqn-list.vis', 'r+')
         file.truncate()
+        self.myQListWidget = QtWidgets.QListWidget(self)
+        i = 0
+        for index, name in self.equations:
+            if i != 0:
+                file.write("\n")
+            file.write(name)
+            myQCustomQWidget = QCustomQWidget()
+            myQCustomQWidget.setTextUp(index)
+            myQCustomQWidget.setTextDown(name)
+            myQListWidgetItem = QtWidgets.QListWidgetItem(self.myQListWidget)
+            myQListWidgetItem.setSizeHint(myQCustomQWidget.sizeHint())
+            self.myQListWidget.addItem(myQListWidgetItem)
+            self.myQListWidget.setItemWidget(
+                myQListWidgetItem, myQCustomQWidget)
+            i += 1
         file.close()
+        self.myQListWidget.resize(400, 300)
+        self.myQListWidget.itemClicked.connect(self.Clicked)
+        self.equationListVbox.addWidget(self.myQListWidget)
+        self.clearButton = QtWidgets.QPushButton('Clear equations')
+        self.clearButton.clicked.connect(self.clearHistory)
+        self.equationListVbox.addWidget(self.clearButton)
+        return self.equationListVbox
 
     def Clicked(self, item):
         _, name = self.equations[self.myQListWidget.currentRow()]
@@ -259,27 +317,15 @@ class WorkSpace(QWidget):
     def buttonsLayout(self):
         vbox = QVBoxLayout()
         interactionModeLayout = QVBoxLayout()
-        interactionModeButton = QtWidgets.QPushButton('visma')
-        interactionModeButton.clicked.connect(self.interactionMode)
-        interactionModeLayout.addWidget(interactionModeButton)
+        self.interactionModeButton = QtWidgets.QPushButton('visma')
+        self.interactionModeButton.clicked.connect(self.interactionMode)
+        interactionModeLayout.addWidget(self.interactionModeButton)
         interactionModeWidget = QWidget(self)
         interactionModeWidget.setLayout(interactionModeLayout)
         interactionModeWidget.setFixedSize(275, 50)
         topButtonSplitter = QSplitter(Qt.Horizontal)
         topButtonSplitter.addWidget(interactionModeWidget)
         permanentButtons = QWidget(self)
-        """
-        documentButtonsLayout = QHBoxLayout()
-        newButton = PicButton(QPixmap("assets/new.png"))
-        saveButton = PicButton(QPixmap("assets/save.png"))
-        newButton.setToolTip('Add New Equation')
-        saveButton.setToolTip('Save Equation')
-        documentButtonsLayout.addWidget(newButton)
-        documentButtonsLayout.addWidget(saveButton)
-        newButton.clicked.connect(self.newEquation)
-        saveButton.clicked.connect(self.saveEquation)
-        permanentButtons.setLayout(documentButtonsLayout)
-        """
         topButtonSplitter.addWidget(permanentButtons)
         self.bottomButton = QFrame()
         self.buttonSplitter = QSplitter(Qt.Vertical)
@@ -290,7 +336,7 @@ class WorkSpace(QWidget):
 
     def interactionMode(self):
         self.enableQSolver = False
-        showQSolve(self, self.enableQSolver)
+        renderQuickSol(self, self.enableQSolver)
         cursor = self.textedit.textCursor()
         interactionText = cursor.selectedText()
         if str(interactionText) == '':
@@ -299,6 +345,9 @@ class WorkSpace(QWidget):
         else:
             self.input = str(interactionText)
             self.mode = 'interaction'
+        showbuttons = True
+        if len(self.input) == 0:
+            return self.warning("No input given!")
         self.tokens = tokenizer(self.input)
         # DBP: print(self.tokens)
         self.addEquation()
@@ -306,7 +355,7 @@ class WorkSpace(QWidget):
         self.lTokens = lhs
         self.rTokens = rhs
         operations, self.solutionType = checkTypes(lhs, rhs)
-        if isinstance(operations, list):
+        if isinstance(operations, list) and showbuttons:
             opButtons = []
             if len(operations) > 0:
                 if len(operations) == 1:
@@ -361,7 +410,7 @@ class WorkSpace(QWidget):
             opButtons = []
             if len(operations) > 0:
                 if len(operations) == 1:
-                    if operations[0] != 'solve':
+                    if operations[0] == 'solve':
                         opButtons = ['simplify']
                 else:
                     opButtons = ['simplify']
@@ -399,7 +448,7 @@ class WorkSpace(QWidget):
             if len(variables) > 0:
                 for variable in variables:
                     varButtons.append(variable)
-                varButtons.append("Back")
+                varButtons.append("back")
                 for i in reversed(range(self.solutionOptionsBox.count())):
                     self.solutionOptionsBox.itemAt(i).widget().setParent(None)
                 for i in range(int(len(varButtons) / 2) + 1):
@@ -413,53 +462,10 @@ class WorkSpace(QWidget):
                             self.solutionOptionsBox.addWidget(
                                 self.solutionButtons[(i, j)], i, j)
 
-    def newEquation(self):
-        self.textedit.setText("")
-
-    def saveEquation(self):
-        for i in reversed(range(self.equationListVbox.count())):
-            self.equationListVbox.itemAt(i).widget().setParent(None)
-
-        eqn = str(self.textedit.toPlainText())
-        if len(self.equations) == 1:
-            index, name = self.equations[0]
-            if index == "No equations stored":
-                self.equations[0] = ("Equation No. 1", eqn)
-            else:
-                self.equations.append(("Equation No. 2", eqn))
-        else:
-            self.equations.append(
-                ("Equation No. " + str(len(self.equations) + 1), eqn))
-
-        self.textedit.setText('')
-        file = open('local/eqn-list.vis', 'r+')
-        self.myQListWidget = QtWidgets.QListWidget(self)
-        i = 0
-        for index, name in self.equations:
-            if i != 0:
-                file.write("\n")
-            file.write(name)
-            myQCustomQWidget = QCustomQWidget()
-            myQCustomQWidget.setTextUp(index)
-            myQCustomQWidget.setTextDown(name)
-            myQListWidgetItem = QtWidgets.QListWidgetItem(self.myQListWidget)
-            myQListWidgetItem.setSizeHint(myQCustomQWidget.sizeHint())
-            self.myQListWidget.addItem(myQListWidgetItem)
-            self.myQListWidget.setItemWidget(
-                myQListWidgetItem, myQCustomQWidget)
-            i += 1
-        file.close()
-        self.myQListWidget.resize(400, 300)
-
-        self.myQListWidget.itemClicked.connect(self.Clicked)
-        self.equationListVbox.addWidget(self.myQListWidget)
-        return self.equationListVbox
-
     def addEquation(self):
-        eqn = str(self.textedit.toPlainText())
-        for index, equation in self.equations:
-            if equation == eqn:
-                return self.equationListVbox
+        eqn = str(self.textedit.toPlainText()).replace(' ', '')
+        if any(eqn in item for item in self.equations):
+            return self.equationListVbox
 
         for i in reversed(range(self.equationListVbox.count())):
             self.equationListVbox.itemAt(i).widget().setParent(None)
@@ -469,13 +475,13 @@ class WorkSpace(QWidget):
             if index == "No equations stored":
                 self.equations[0] = ("Equation No. 1", eqn)
             else:
-                self.equations.append(("Equation No. 2", eqn))
-        else:
-            self.equations.append(
-                ("Equation No. " + str(len(self.equations) + 1), eqn))
+                self.equations.insert(0, ("Equation No. 2", eqn))
+        elif eqn != "":
+            self.equations.insert(0, ("Equation No. " + str(len(self.equations) + 1), eqn))
         file = open('local/eqn-list.vis', 'r+')
         self.myQListWidget = QtWidgets.QListWidget(self)
         i = 0
+        file.truncate()
         for index, name in self.equations:
             if i != 0:
                 file.write("\n")
@@ -491,17 +497,15 @@ class WorkSpace(QWidget):
             i += 1
         file.close()
         self.myQListWidget.resize(400, 300)
-
         self.myQListWidget.itemClicked.connect(self.Clicked)
         self.equationListVbox.addWidget(self.myQListWidget)
         self.myQListWidget.itemClicked.connect(self.Clicked)
-        self.clearButton = QtWidgets.QPushButton('clear equations')
+        self.clearButton = QtWidgets.QPushButton('Clear equations')
         self.clearButton.clicked.connect(self.clearHistory)
         self.equationListVbox.addWidget(self.clearButton)
         return self.equationListVbox
 
     def inputsLayout(self, loadList="Greek"):
-
         inputLayout = QHBoxLayout(self)
         inputWidget = QWidget()
         self.selectedCombo = str(loadList)
@@ -533,7 +537,6 @@ class WorkSpace(QWidget):
     def onActivated(self, text):
         for i in reversed(range(self.inputBox.count())):
             self.inputBox.itemAt(i).widget().setParent(None)
-
         for i in range(4):
             for j in range(10):
                 if str(text) in "Greek":
@@ -605,7 +608,7 @@ class WorkSpace(QWidget):
                 else:
                     self.lTokens, self.rTokens, availableOperations, tokenString, equationTokens, comments = simplifyEquation(self.lTokens, self.rTokens)
             elif name == 'factorize':
-                    self.tokens, availableOperations, tokenString, equationTokens, comments = factorize(self.tokens)
+                self.tokens, availableOperations, tokenString, equationTokens, comments = factorize(self.tokens)
             elif name == 'find roots':
                 self.lTokens, self.rTokens, availableOperations, tokenString, equationTokens, comments = quadraticRoots(self.lTokens, self.rTokens)
             elif name == 'solve':
@@ -642,11 +645,14 @@ class WorkSpace(QWidget):
         return calluser
 
     def onWRTVariablePress(self, varName, operation):
+
         def calluser():
+
             availableOperations = []
             tokenString = ''
             equationTokens = []
-            if varName == 'Back':
+
+            if varName == 'back':
                 self.input = str(self.textedit.toPlainText())
                 self.tokens = tokenizer(self.input)
                 # print(self.tokens)
@@ -655,31 +661,44 @@ class WorkSpace(QWidget):
                     lhs, rhs)
                 self.refreshButtons(operations)
 
-            elif operation == 'solve':
-                self.lTokens, self.rTokens, availableOperations, tokenString, equationTokens, comments = solveFor(self.lTokens, self.rTokens, varName)
-
-            elif operation == 'integrate':
-                self.lTokens, availableOperations, tokenString, equationTokens, comments = integrate(self.lTokens, varName)
-
-            elif operation == 'differentiate':
-                self.lTokens, availableOperations, tokenString, equationTokens, comments = differentiate(self.lTokens, varName)
-
-            self.eqToks = equationTokens
-            self.output = resultLatex(operation, equationTokens, comments, varName)
-            if len(availableOperations) == 0:
-                self.clearButtons()
             else:
-                self.refreshButtons(availableOperations)
-            if self.mode == 'normal':
-                self.textedit.setText(tokenString)
-            elif self.mode == 'interaction':
-                cursor = self.textedit.textCursor()
-                cursor.insertText(tokenString)
-            if self.showStepByStep is True:
-                showSteps(self)
-            if self.showPlotter is True:
-                plot(self)
+
+                if operation == 'solve':
+                    self.lTokens, self.rTokens, availableOperations, tokenString, equationTokens, comments = solveFor(self.lTokens, self.rTokens, varName)
+
+                elif operation == 'integrate':
+                    self.lTokens, availableOperations, tokenString, equationTokens, comments = integrate(self.lTokens, varName)
+
+                elif operation == 'differentiate':
+                    self.lTokens, availableOperations, tokenString, equationTokens, comments = differentiate(self.lTokens, varName)
+
+                self.eqToks = equationTokens
+                self.output = resultLatex(operation, equationTokens, comments, varName)
+
+                if len(availableOperations) == 0:
+                    self.clearButtons()
+                else:
+                    self.refreshButtons(availableOperations)
+                if self.mode == 'normal':
+                    self.textedit.setText(tokenString)
+                elif self.mode == 'interaction':
+                    cursor = self.textedit.textCursor()
+                    cursor.insertText(tokenString)
+                if self.showStepByStep is True:
+                    showSteps(self)
+                if self.showPlotter is True:
+                    plot(self)
+
         return calluser
+
+    @classmethod
+    def warning(self, warningstr):
+        warning = QMessageBox()
+        warning.setWindowTitle('Warning')
+        warning.setIcon(QMessageBox.Warning)
+        warning.setText(warningstr)
+        warning.setStandardButtons(QMessageBox.Ok)
+        return warning.exec_()
 
 
 class QCustomQWidget(QtWidgets.QWidget):
